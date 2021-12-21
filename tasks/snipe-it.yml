@@ -24,12 +24,12 @@
       state: present
 
 
-      #- name: Create database user with name  and password  (all database privileges)
-      #mysql_user:
-      #name: snipeit_dbuser
-      # password: snipeit_dbuser_password
-     #priv: '*.*:ALL'
-     #state: present
+   - name: Create database user with name  and password  (all database privileges)
+     mysql_user:
+       name: snipeit_dbuser
+       password: snipeit_dbuser_password
+       priv: '*.*:ALL'
+       state: present
 
   - name: Flush Privileges
     become: true
