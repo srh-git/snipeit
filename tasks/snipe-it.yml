@@ -1,0 +1,83 @@
+---
+
+  - name: creating a  directory
+    file:
+      dest: /var/www/snipeit
+      state: directory
+
+  - name: Cloning github  snipe-it repo
+    git:
+        repo: https://github.com/snipe/snipe-it.git
+        dest: /var/www/snipeit
+        update: yes
+        force: yes
+
+  - name: install python mysql bindings
+    apt: name=python-mysqldb state=present
+    become: yes
+    become_method: sudo
+
+
+  - name: Create a new database
+    mysql_db:
+      name: snipeit_dbname
+      state: present
+
+
+      #- name: Create database user with name  and password  (all database privileges)
+      #mysql_user:
+      #name: snipeit_dbuser
+      # password: snipeit_dbuser_password
+     #priv: '*.*:ALL'
+     #state: present
+
+  - name: Flush Privileges
+    become: true
+    shell: systemctl restart mariadb.service
+
+
+  - name: Copy .env.example to .env
+    shell: cp /var/www/snipeit/.env.example /var/www/snipeit/.env
+
+  - name: Chmod directories storage
+    file:
+      path: "/var/www/snipeit/app/storage"
+      recurse: yes
+      group: www-data
+      owner: www-data
+      mode: "0775"
+
+  - name: Chmod directories uploads
+    file:
+      path: "/var/www/snipeit/public/uploads"
+      recurse: yes
+      owner: www-data
+      group: www-data
+      mode: "0755"
+
+  - name: Installing Composer
+    shell: composer install --prefer-source --no-interaction
+    args:
+      chdir: /var/www/snipeit/
+
+  - name: Generating app key
+    shell: php artisan key:generate --force chdir="/var/www/snipeit/"
+
+  - name: Setting SnipeIT  file
+    file:  src=virthost.snipeit.conf.j2 dest=/etc/nginx/sites-available/snipeit force=yes owner=root  group=root state=link
+
+  - name: Enable snipeit virtual host
+    file:
+      src: /etc/nginx/sites-available/snipeit
+      dest: /etc/nginx/sites-enabled/snipeit
+      force: yes
+      state: link
+
+  - name: Disable default site
+    file: path=/etc/nginx/sites-enabled/default.conf state=absent
+    notify:
+      - restart nginx
+
+
+  - name: start mariadb
+    service: name=mariadb enabled=yes  state=started
