@@ -1,0 +1,193 @@
+---
+- hosts: localhost
+  become: yes
+  vars:
+     mysql_root_password: root
+  tasks:
+  - name: Update apt-get repo and cache
+    apt: update_cache=yes force_apt_get=yes cache_valid_time=3600
+
+  - name: Upgrade all apt packages
+    apt: upgrade=dist force_apt_get=yes
+
+  - name: install nginx
+    apt: name=nginx update_cache=yes state=latest
+
+    # - name: Install mysql server
+    #apt: name=mysql-server state=latest
+
+
+  - name: Install mysql
+    become: yes
+    apt: name={{ item }} update_cache=yes state=latest
+    loop: [ 'mysql-server', 'php-fpm',  'php-mysql','python3-mysqldb']
+
+  - name: Add .my.cnf
+    template: src=my.cnf.j2 dest=/root/.my.cnf owner=root group=root mode=0600
+
+  - name: Set root Password
+    mysql_user: login_password={{ mysql_root_password }} check_implicit_admin=yes name=root host={{ item }} password={{ mysql_root_password }} state=present
+    with_items:
+        - localhost
+        - 127.0.0.1
+        - ::1
+
+  - name: Reload privilege tables
+    command: 'mysql -ne "{{ item }}"'
+    with_items:
+       - FLUSH PRIVILEGES
+    changed_when: False
+
+  - name: Remove anonymous users
+    mysql_user: name='' host=localhost state=absent
+
+  - name: Disallow root login remotely
+    command: 'mysql -ne "{{ item }}"'
+    with_items:
+      - DELETE FROM mysql.user WHERE User='root' AND Host NOT IN ('localhost', '127.0.0.1', '::1')
+    changed_when: False
+
+  - name: Remove test database and access to it
+    command: 'mysql -ne "{{ item }}"'
+    with_items:
+       - DROP DATABASE IF EXISTS test
+       - DELETE FROM mysql.db WHERE Db='test' OR Db='test\\_%'
+    changed_when: False
+
+  - name: Reload privilege tables
+    command: 'mysql -ne "{{ item }}"'
+    with_items:
+      - FLUSH PRIVILEGES
+    changed_when: False
+
+  - name: Start nginx server
+    service: name=nginx state=started
+
+
+  - name: PHP
+    apt: name=software-properties-common
+
+  - name: Add co-installable PHP 7.4
+    apt_repository:
+      repo: 'ppa:ondrej/php'
+
+  - name: Install PHP Extensions and PyMysql
+    apt: name={{item}} state=latest
+    with_items:
+      - git
+      - php7.4
+      - php7.4-fpm
+      - php7.4-common
+      - php7.4-gmp
+      - php7.4-curl
+      - php7.4-intl
+      - php7.4-mbstring
+      - php7.4-xmlrpc
+      - php7.4-mysql
+      - php7.4-gd
+      - php7.4-bcmath
+      - php7.4-xml
+      - php7.4-json
+      - php7.4-bz2
+      - php7.4-readline
+      - php7.4-cli
+      - php7.4-zip
+      - php7.4-sqlite3
+      - php7.4-ldap
+        # - python
+      - php7.4-tokenizer
+      - curl
+
+  - name: start mysql db
+    service: name=mysql  enabled=yes state=started
+
+  - name: To download composer
+    shell: curl -sS https://getcomposer.org/installer | sudo php -- --install-dir=/usr/local/bin --filename=composer
+
+    
+  - name: creating a  directory
+    file:
+      path: /var/www/snipeit
+      state: directory
+
+  - name: Cloning github  snipe-it repo
+    git:
+        repo: https://github.com/snipe/snipe-it.git
+        dest: /var/www/snipeit
+        update: no
+
+  - name: create a new database
+    mysql_db: name=snipeit state=present login_user=root login_password=root
+
+  - name: Create snipeit mysql user
+    mysql_user: name='snipe_user' host='localhost' password=snipepass priv=*.*:ALL state=present
+
+
+  - name: Reload privilege tables
+    command: 'mysql -ne "{{ item }}"'
+    with_items:
+        - FLUSH PRIVILEGES
+    changed_when: False
+
+  - name: Copy .env file
+    template:
+        src: dotenv
+        dest: /var/www/snipeit/.env
+
+  - name: Chmod directories storage
+    file:
+      path: "/var/www/snipeit/app/storage"
+      recurse: yes
+      group: www-data
+      owner: www-data
+      mode: "0755"
+
+  - name: Chmod directories uploads
+    file:
+      path: "/var/www/snipeit/public/uploads"
+      recurse: yes
+      owner: www-data
+      group: www-data
+      mode: "0755"
+
+  - name: Install composer
+    shell: composer install
+    args:
+      creates: /var/www/snipeit/
+
+  - name: Generating app key
+    shell: php artisan key:generate
+    args:
+       creates: /var/www/snipeit/
+
+  - name: Set up nginx site
+    template:
+      src: snipe.conf
+      dest: /etc/nginx/sites-available/snipeit
+
+  - name: Enable new site
+    file:
+      src: /etc/nginx/sites-available/snipeit
+      dest: /etc/nginx/sites-enabled/snipeit
+      owner: root
+      group: root
+      state: link
+      force: yes
+
+  - name: Create phpinfo.php file
+    copy:
+     dest: /var/www/html/phpinfo.php
+     content: |
+         <?php phpinfo(); ?>
+
+  handlers:
+  - name: Reload nginx
+    service:
+      name: nginx
+      state: reloaded
+
+  - name: Restart nginx
+    service:
+      name: nginx
+      state: restarted
+
