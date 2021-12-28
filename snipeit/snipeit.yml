@@ -1,24 +1,23 @@
 ---
 - hosts: localhost
-  become: yes
+
   vars:
      mysql_root_password: root
   tasks:
   - name: Update apt-get repo and cache
+    become: true 
     apt: update_cache=yes force_apt_get=yes cache_valid_time=3600
 
   - name: Upgrade all apt packages
+    become: true
     apt: upgrade=dist force_apt_get=yes
 
   - name: install nginx
+    become: true
     apt: name=nginx update_cache=yes state=latest
 
-    # - name: Install mysql server
-    #apt: name=mysql-server state=latest
-
-
   - name: Install mysql
-    become: yes
+    become: true
     apt: name={{ item }} update_cache=yes state=latest
     loop: [ 'mysql-server', 'php-fpm',  'php-mysql','python3-mysqldb']
 
@@ -26,6 +25,7 @@
     template: src=my.cnf.j2 dest=/root/.my.cnf owner=root group=root mode=0600
 
   - name: Set root Password
+    become: true
     mysql_user: login_password={{ mysql_root_password }} check_implicit_admin=yes name=root host={{ item }} password={{ mysql_root_password }} state=present
     with_items:
         - localhost
@@ -65,13 +65,16 @@
 
 
   - name: PHP
+    become: true
     apt: name=software-properties-common
 
   - name: Add co-installable PHP 7.4
+    become: true
     apt_repository:
       repo: 'ppa:ondrej/php'
 
   - name: Install PHP Extensions and PyMysql
+    become: true
     apt: name={{item}} state=latest
     with_items:
       - git
@@ -102,39 +105,46 @@
     service: name=mysql  enabled=yes state=started
 
   - name: To download composer
+    become: true
     shell: curl -sS https://getcomposer.org/installer | sudo php -- --install-dir=/usr/local/bin --filename=composer
 
-    
   - name: creating a  directory
-    file:
+    become: true
+    file: 
       path: /var/www/snipeit
       state: directory
 
   - name: Cloning github  snipe-it repo
+    become: true
     git:
         repo: https://github.com/snipe/snipe-it.git
         dest: /var/www/snipeit
         update: no
 
   - name: create a new database
+    become: true
     mysql_db: name=snipeit state=present login_user=root login_password=root
 
   - name: Create snipeit mysql user
+    become: true   
     mysql_user: name='snipe_user' host='localhost' password=snipepass priv=*.*:ALL state=present
 
-
   - name: Reload privilege tables
+    become: true
     command: 'mysql -ne "{{ item }}"'
     with_items:
         - FLUSH PRIVILEGES
     changed_when: False
 
+
   - name: Copy .env file
+    become: true
     template:
         src: dotenv
         dest: /var/www/snipeit/.env
 
   - name: Chmod directories storage
+    become: true
     file:
       path: "/var/www/snipeit/app/storage"
       recurse: yes
@@ -143,38 +153,45 @@
       mode: "0755"
 
   - name: Chmod directories uploads
+    become: true
     file:
       path: "/var/www/snipeit/public/uploads"
       recurse: yes
       owner: www-data
       group: www-data
       mode: "0755"
-
+ 
   - name: Install composer
+    become: true
     shell: composer install
     args:
       creates: /var/www/snipeit/
 
   - name: Generating app key
+    become: true 
     shell: php artisan key:generate
     args:
        creates: /var/www/snipeit/
 
+
   - name: Set up nginx site
+    become: true
     template:
       src: snipe.conf
       dest: /etc/nginx/sites-available/snipeit
 
   - name: Enable new site
+    become: true
     file:
       src: /etc/nginx/sites-available/snipeit
       dest: /etc/nginx/sites-enabled/snipeit
-      owner: root
-      group: root
       state: link
-      force: yes
+      force: yes 
+    notify:
+        - restart nginx
 
   - name: Create phpinfo.php file
+    become: true
     copy:
      dest: /var/www/html/phpinfo.php
      content: |
@@ -190,4 +207,5 @@
     service:
       name: nginx
       state: restarted
+
 
